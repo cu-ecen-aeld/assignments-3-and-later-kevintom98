@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
                        "Arg #2 : Text string to be written to the Arg #1 file");
 
         printf("The program needs 2 Arguments \n"
-               "----------------------------"
+               "---------------------------- \n"
                "Arg #1 : Full path of a file (including filename) \n"
                "Arg #2 : Text string to be written to the Arg #1 file \n");
         exit(1);

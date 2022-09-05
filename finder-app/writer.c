@@ -44,6 +44,22 @@
 
 
 
+
+/*
+  Name         : usage()
+  Descrirption : This function prints what arguments are needed in to run the output file.
+  Inputs       : None
+  Returns      : None
+*/
+void usage()
+{
+    printf("The program needs 2 Arguments \n"
+            "---------------------------- \n"
+            "Arg #1 : Full path of a file (including filename) \n"
+            "Arg #2 : Text string to be written to the Arg #1 file \n");
+}
+
+
 /*
   Name         : void write_to_file()
   Descrirption : This function writes the passed string to the file referenced
@@ -121,19 +137,19 @@ int open_file(char *file)
 
 
 
+
+
 int main(int argc, char *argv[])
 {
 
+    //Checking if 2 arguments are given or not
     if(argc <= 1 || argc > 3)
     {
         syslog(LOG_ERR,"Need 2 arguments!!"
                        "Arg #1 : Full path of a file (Including filename)"
                        "Arg #2 : Text string to be written to the Arg #1 file");
-
-        printf("The program needs 2 Arguments \n"
-               "---------------------------- \n"
-               "Arg #1 : Full path of a file (including filename) \n"
-               "Arg #2 : Text string to be written to the Arg #1 file \n");
+        
+        usage();
         exit(1);
     }
 
@@ -142,6 +158,7 @@ int main(int argc, char *argv[])
     char *str_to_write = argv[2];
     char *filename     = basename(argv[1]);
 
+    //Printing log data
     syslog(LOG_DEBUG,"Writing %s to %s", str_to_write, filename);
     printf("Writing %s to %s \n", str_to_write, filename);
 

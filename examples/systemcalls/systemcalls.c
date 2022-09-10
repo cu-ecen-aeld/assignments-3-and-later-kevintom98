@@ -1,4 +1,8 @@
+#define _XOPEN_SOURCE
 #include "systemcalls.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <sys/types.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -17,7 +21,11 @@ bool do_system(const char *cmd)
  *   or false() if it returned a failure
 */
 
-    return true;
+    int sys_return = system(cmd);
+    if(WIFEXITED(sys_return))
+        return true;
+    else
+        return false;
 }
 
 /**
@@ -40,6 +48,7 @@ bool do_exec(int count, ...)
     va_start(args, count);
     char * command[count+1];
     int i;
+
     for(i=0; i<count; i++)
     {
         command[i] = va_arg(args, char *);
@@ -47,7 +56,7 @@ bool do_exec(int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+    //command[count] = command[count];
 
 /*
  * TODO:
@@ -59,9 +68,36 @@ bool do_exec(int count, ...)
  *
 */
 
-    va_end(args);
+    int status;
+    pid_t pid;
 
-    return true;
+    pid = fork();
+
+    if(pid == -1)
+        return false;
+    else if(pid == 0)
+    {
+        execv(command[0], command[1]);
+        
+        perror("execv");
+        va_end(args);
+        return false;
+    }
+    
+    if (waitpid (pid, &status, 0) == (-1))
+    {
+        perror("waitpid");
+        va_end(args);
+        return false;
+    }
+    else if (WIFEXITED (status))
+    {
+        va_end(args);
+        return true;
+    }
+
+    va_end(args);  
+    return false;
 }
 
 /**
@@ -82,7 +118,7 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+    //command[count] = command[count];
 
 
 /*
@@ -93,7 +129,59 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *
 */
 
-    va_end(args);
+    int status;
+    pid_t pid;
+    int fd;
 
-    return true;
+    fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+    if(fd == -1)
+    {
+        perror("open");
+        printf("\nCannot open the given file\n");
+        
+        va_end(args); 
+        return false;
+    }
+
+    pid = fork();
+
+    if(pid == -1)
+        return false;
+    else if(pid == 0)
+    {
+        if(dup2(fd,1) < 0)
+        {
+            perror("dup2");
+            printf("\nCannot duplicate file descriptor\n");
+            
+            va_end(args);
+            return false;
+        }
+        
+        close(fd);
+
+        execv(command[0], command[1]);
+        
+        perror("execv");
+        va_end(args);
+        return false;
+    }
+    
+
+    if (waitpid (pid, &status, 0) == (-1))
+    {
+        perror("waitpid");
+        va_end(args);
+        return false;
+    }
+    else if (WIFEXITED (status))
+    {
+        va_end(args);
+        return true;
+    }
+
+    close(fd);
+
+    va_end(args);  
+    return false;
 }

@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>
+#include <unistd.h> //for fork(), dup2() and related functions
+#include <sys/wait.h> //for waitpid() and related functions
+#include <fcntl.h> // For open() and related functions
 
 /**
  * @param cmd the command to execute with system()
@@ -56,8 +59,7 @@ bool do_exec(int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    //command[count] = command[count];
-
+    // command[count] = command[count];
 /*
  * TODO:
  *   Execute a system command by calling fork, execv(),
@@ -77,25 +79,21 @@ bool do_exec(int count, ...)
         return false;
     else if(pid == 0)
     {
-        execv(command[0], command[1]);
-        
-        perror("execv");
-        va_end(args);
-        return false;
+        execv(command[0],command);
+        exit(-1);
     }
     
     if (waitpid (pid, &status, 0) == (-1))
     {
         perror("waitpid");
-        va_end(args);
         return false;
     }
     else if (WIFEXITED (status))
-    {
-        va_end(args);
         return true;
-    }
-
+    else
+        return false;
+    
+    
     va_end(args);  
     return false;
 }
@@ -118,7 +116,7 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    //command[count] = command[count];
+    command[count] = command[count];
 
 
 /*
@@ -139,14 +137,16 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
         perror("open");
         printf("\nCannot open the given file\n");
         
-        va_end(args); 
-        return false;
+        abort();
     }
 
     pid = fork();
 
     if(pid == -1)
+    {
+        perror("fork");
         return false;
+    }
     else if(pid == 0)
     {
         if(dup2(fd,1) < 0)
@@ -154,34 +154,27 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
             perror("dup2");
             printf("\nCannot duplicate file descriptor\n");
             
-            va_end(args);
             return false;
         }
         
         close(fd);
 
-        execv(command[0], command[1]);
-        
-        perror("execv");
-        va_end(args);
-        return false;
-    }
-    
+        execv(command[0], command);
 
+        exit(-1);
+    }
+
+    
     if (waitpid (pid, &status, 0) == (-1))
     {
         perror("waitpid");
-        va_end(args);
         return false;
     }
     else if (WIFEXITED (status))
     {
-        va_end(args);
         return true;
     }
 
     close(fd);
-
-    va_end(args);  
     return false;
 }

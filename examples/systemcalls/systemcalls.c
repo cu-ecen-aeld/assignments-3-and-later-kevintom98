@@ -25,7 +25,8 @@ bool do_system(const char *cmd)
 */
 
     int sys_return = system(cmd);
-    if(WIFEXITED(sys_return))
+    
+    if(sys_return == -1 || sys_return == 127)
         return true;
     else
         return false;
@@ -75,25 +76,24 @@ bool do_exec(int count, ...)
 
     pid = fork();
 
-    if(pid == -1)
+
+    //Cannot create the child
+    if(pid < 0)
         return false;
-    else if(pid == 0)
+
+    if(pid == 0)
     {
-        execv(command[0],command);
+        execv(command[0],(command));
         exit(-1);
     }
     
-    if (waitpid (pid, &status, 0) == (-1))
-    {
-        perror("waitpid");
+    //Waiting for the child to terminate
+    if(waitpid(pid,&status, 0) == -1)
         return false;
-    }
-    else if (WIFEXITED (status))
+    else if(WIFEXITED(status))
         return true;
-    else
-        return false;
-    
-    
+
+
     va_end(args);  
     return false;
 }
@@ -116,7 +116,7 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+    //command[count] = command[count];
 
 
 /*
@@ -132,12 +132,10 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     int fd;
 
     fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0644);
-    if(fd == -1)
+    if(fd < 0)
     {
-        perror("open");
-        printf("\nCannot open the given file\n");
-        
-        abort();
+        perror("open");       
+        return false;
     }
 
     pid = fork();
@@ -164,17 +162,12 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
         exit(-1);
     }
 
-    
-    if (waitpid (pid, &status, 0) == (-1))
-    {
-        perror("waitpid");
+    //Waiting for the child to terminate
+    if(waitpid(pid,&status, 0) == -1)
         return false;
-    }
-    else if (WIFEXITED (status))
-    {
+    else if(WIFEXITED(status))
         return true;
-    }
 
-    close(fd);
+    va_end(args);  
     return false;
 }

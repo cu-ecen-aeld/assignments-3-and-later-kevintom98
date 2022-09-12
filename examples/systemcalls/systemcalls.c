@@ -91,7 +91,12 @@ bool do_exec(int count, ...)
     if(waitpid(pid,&status, 0) == -1)
         return false;
     else if(WIFEXITED(status))
-        return true;
+    {
+    	if(WEXITSTATUS(status) == 0)
+    		return true;
+    	else
+    		return false;
+    }   
 
 
     va_end(args);  
@@ -166,7 +171,12 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     if(waitpid(pid,&status, 0) == -1)
         return false;
     else if(WIFEXITED(status))
-        return true;
+    {
+    	if(WEXITSTATUS(status) == 0)
+    		return true;
+    	else
+    		return false;
+    }
 
     va_end(args);  
     return false;

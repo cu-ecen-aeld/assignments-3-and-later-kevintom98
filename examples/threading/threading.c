@@ -9,18 +9,12 @@
 
   Email       : keto9919@colorado.edu
 
-  Description : 
+  Description : Creates thread as requested and locks on a mutex till time expires.
 
 
   Reference   : * Linux System Programming (Second Edition)
                   Robert Love
                 * usleep() : https://linux.die.net/man/3/usleep
-
-
-
-
-  How to compile the script
-  -------------------------
 ******************************************************************************************************/
 #include "threading.h"
 #include <unistd.h> 
@@ -41,15 +35,11 @@
 
 void* threadfunc(void* thread_param)
 {
-
-    // TODO: wait, obtain mutex, wait, release mutex as described by thread_data structure
-    // hint: use a cast like the one below to obtain thread arguments from your parameter
-    //struct thread_data* thread_func_args = (struct thread_data *) thread_param;
-
     struct thread_data * thread_args = (struct thread_data *) thread_param;
+    struct timespec wait_rem; //Structure for remaining time
     
-    printf("Sleping");
-    nanosleep(&(thread_args->wait_to_obtain_ms), &(thread_args->wait_to_obtain_ms_rem));
+
+    nanosleep(&(thread_args->wait_to_obtain_ms),  &wait_rem);
     
     if(pthread_mutex_lock(thread_args->thread_mutex) != 0)
     {
@@ -58,9 +48,7 @@ void* threadfunc(void* thread_param)
         return thread_param;
     }
 
-    printf("Locked");
-    printf("Slepping");
-    nanosleep(&(thread_args->wait_to_release_ms), &(thread_args->wait_to_release_ms_rem));
+    nanosleep(&(thread_args->wait_to_release_ms),  &wait_rem);
 
     if(pthread_mutex_unlock(thread_args->thread_mutex) != 0)
     {
@@ -69,7 +57,6 @@ void* threadfunc(void* thread_param)
         return thread_param;
     }
 
-    printf("unlocked");
     thread_args->thread_complete_success = true;
     return thread_param;
 }
@@ -77,14 +64,6 @@ void* threadfunc(void* thread_param)
 
 bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int wait_to_obtain_ms, int wait_to_release_ms)
 {
-    /**
-     * TODO: allocate memory for thread_data, setup mutex and wait arguments, pass thread_data to created thread
-     * using threadfunc() as entry point.
-     *
-     * return true if successful.
-     *
-     * See implementation details in threading.h file comment block
-     */
 
     if((thread == NULL) || (mutex == NULL))
     {
@@ -109,6 +88,7 @@ bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int 
     if(t_d == NULL) 
     {
         perror("malloc");
+        ERROR_LOG("malloc() failed");
         return false;
     }
 
@@ -116,6 +96,8 @@ bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int 
     t_d->t_data_dy_memory   = t_d;
     t_d->thread_mutex       = mutex;
 
+
+    //conversion for waiting
     if(wait_to_obtain_ms > 1000)
     {
         t_sec = (int)wait_to_obtain_ms/1000;
@@ -131,7 +113,6 @@ bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int 
     }
 
 
-    //Converting ms to seconds and ns
     if (wait_to_release_ms > 1000)
     {
         t_sec = (int)wait_to_release_ms/1000;
@@ -157,6 +138,7 @@ bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex,int 
         errno = p_ret;
         perror("pthread_create");
         free(t_d);
+        ERROR_LOG("pthread_create() failed");
         return false;
     }
 

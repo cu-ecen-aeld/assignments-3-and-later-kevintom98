@@ -17,9 +17,7 @@ struct thread_data{
      */
 
     struct timespec wait_to_obtain_ms;
-    struct timespec wait_to_obtain_ms_rem;
     struct timespec wait_to_release_ms;
-    struct timespec wait_to_release_ms_rem;
 
     pthread_t thread_id;
     pthread_mutex_t * thread_mutex;

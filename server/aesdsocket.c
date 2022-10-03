@@ -39,6 +39,8 @@ int socket_fd;
 bool signal_received = false;
 bool finished_writing = false;
 bool deamon = false;
+char *read_buf;
+int f_fd = 0;
 
 
 
@@ -136,6 +138,8 @@ static void signal_handler(int signo)
   
   if(!finished_writing)
   {
+    free(read_buf);
+    close(f_fd);
     close(socket_fd);
     closelog();
     unlink("/var/tmp/aesdsocketdata");
@@ -163,7 +167,7 @@ int main(int argc, char *argv[])
   memset(&hints, 0, sizeof hints);
   int  ret;
 
-  char *read_buf = malloc(1024);
+  read_buf = malloc(1024);
 
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_STREAM;
@@ -182,7 +186,9 @@ int main(int argc, char *argv[])
     return -1;
   }
 
+  freeaddrinfo(conn_info);
 
+  //Starting the deamon
   if(deamon)
     {
       pid_t pid;
@@ -219,13 +225,15 @@ int main(int argc, char *argv[])
         close(STDIN_FILENO);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        open ("/dev/null", O_RDWR); /*stdin*/
-        dup (0); /* stdout */
-        dup (0); /* stderror */
+        open ("/dev/null", O_RDWR);
+        dup (0); 
+        dup (0); 
       }
     }
 
-  ret = listen(socket_fd, 5);  // TODO : Set the number of connection limit
+
+  //Listening on the port
+  ret = listen(socket_fd, 5);  
   if(ret < 0)
   {
     perror("listen");
@@ -236,7 +244,7 @@ int main(int argc, char *argv[])
   socklen_t addr_size = sizeof their_addr;
 
 
-  int f_fd = 0, new_fd = 0;
+  int  new_fd = 0;
   f_fd = open("/var/tmp/aesdsocketdata",O_RDWR | O_CREAT | O_TRUNC | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP |S_IWGRP | S_IROTH | S_IWOTH); //666 equivalent value
 
 
@@ -245,7 +253,7 @@ int main(int argc, char *argv[])
   size_t len, total_len;
   int r_ret = 0;
   bool packet_complete = false;
-  uint64_t realloc_count = 0;
+  uint64_t realloc_count = 1;
 
 
   if (signal (SIGINT, signal_handler) == SIG_ERR) 
@@ -263,9 +271,6 @@ int main(int argc, char *argv[])
 
   while(!signal_received)
   {
-
-
-
     new_fd = accept(socket_fd, (struct sockaddr *)&their_addr, &addr_size);
     if(new_fd< 0)
     {
@@ -274,17 +279,15 @@ int main(int argc, char *argv[])
     }
 
     inet_ntop(their_addr.ss_family,get_in_addr((struct sockaddr *)&their_addr),s, sizeof s);
-
     syslog(LOG_DEBUG, "Accepted connection from %s",s);
     printf("Accepted connection from %s",s);
 
     finished_writing = true;
 
-
     while((!packet_complete))
     {
       
-      r_ret = recv(new_fd, (read_buf+(realloc_count*1024)), 1024, 0);
+      r_ret = recv(new_fd, (read_buf+((realloc_count-1)*1024)), 1024, 0);
       
       if(r_ret == 0)
       {
@@ -300,7 +303,8 @@ int main(int argc, char *argv[])
         return -1;
       }
 
-      len = strlen(read_buf);
+      //len = strlen(read_buf);
+      len = ((realloc_count-1)*1024) + r_ret;   
 
       total_len = is_newline_found(read_buf,len);
 
@@ -309,8 +313,8 @@ int main(int argc, char *argv[])
 
       if(!packet_complete)
       {
-        read_buf = realloc(read_buf, (len + 1024));
         realloc_count++;
+        read_buf = realloc(read_buf, realloc_count*1024);
       }
         
       if(packet_complete)
@@ -327,7 +331,12 @@ int main(int argc, char *argv[])
     finished_writing = false;
   }
 
+
+  //Closing and freeing all the opened f_ds andmalloced buffers
   free(read_buf);
+  close(socket_fd);
   close(f_fd);
+  closelog();
+  unlink("/var/tmp/aesdsocketdata");
   return 0;
 }

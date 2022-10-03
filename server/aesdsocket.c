@@ -245,7 +245,7 @@ int main(int argc, char *argv[])
 
 
   int  new_fd = 0;
-  f_fd = open("/var/tmp/aesdsocketdata",O_RDWR | O_CREAT | O_TRUNC | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP |S_IWGRP | S_IROTH | S_IWOTH); //666 equivalent value
+  f_fd = open("/var/tmp/aesdsocketdata",O_RDWR | O_CREAT | O_TRUNC | O_APPEND, 755); //666 equivalent value
 
 
   

@@ -1,11 +1,11 @@
 CC=gcc
 CROSS_COMPILE=
 
-CFLAGS = -Wall
-TARGET = writer
+CFLAGS = -Wall -Werror
+TARGET = aesdsocket
 
 
-all: writer
+all: aesdsocket
 
 $(TARGET): $(TARGET).c
 	$(CROSS_COMPILE)$(CC) $(CFLAGS) -o $(TARGET) $(TARGET).c

@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <pthread.h>
+#include <time.h>
 
 /**
  * This structure should be dynamically allocated and passed as
@@ -15,6 +16,12 @@ struct thread_data{
      * your thread implementation.
      */
 
+    struct timespec wait_to_obtain_ms;
+    struct timespec wait_to_release_ms;
+
+    pthread_t thread_id;
+    pthread_mutex_t * thread_mutex;
+    void * t_data_dy_memory;
     /**
      * Set to true if the thread completed with success, false
      * if an error occurred.

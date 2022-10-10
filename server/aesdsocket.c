@@ -48,10 +48,10 @@ int f_fd = 0;
 pthread_mutex_t lock;
 char buffer[80];
 
-int time_increased;
-int time_handled;
+int time_increased = 0;
+int time_handled = 0;
 
-int num_of_threads;
+int num_of_threads = 0;
 
 
 struct connection_data
@@ -70,6 +70,9 @@ struct thread_data
     struct connection_data *con_data;
     SLIST_ENTRY(thread_data) entries;             /* Singly linked list */
 };
+
+
+struct itimerspec ts;
 
 
 
@@ -95,7 +98,7 @@ int is_newline_found(char *buf, size_t len)
     if(buf[i]=='\n')
       return i;
       
-  return 0;
+  return -1;
 }
 
 
@@ -127,7 +130,7 @@ void send_packets(int soc_fd)
 
   int read_len = 1024;
   char read_buf[read_len];
-  int ret =1, s_ret = 0;
+  int ret = 1, s_ret = 0;
   
   
 
@@ -180,11 +183,6 @@ static void signal_handler(int signo)
 }
 
 
-
-
-
-
-
 void *packet_handler(void *conn_param)
 {
   bool packet_complete= false;
@@ -211,6 +209,7 @@ void *packet_handler(void *conn_param)
         //Connection is closed
         // printf("\nClosed connection from %s\n",s);
         // syslog(LOG_DEBUG, "\nClosed connection from %s\n",s);
+        printf("closing thread\n");
         close(conn_data->accepted_fd);
         break;
       }
@@ -222,19 +221,21 @@ void *packet_handler(void *conn_param)
         break;
       }
 
-
       len = ((realloc_count-1)*DATASIZE) + r_ret;   
 
       total_len = is_newline_found(read_buf,len);
 
+     printf("\nr_ret %d total_len %ld\n",r_ret,total_len);
+
       if(total_len > 0)
         packet_complete = true;
         
-
+ 
       if(!packet_complete)
       {
         realloc_count++;
         read_buf = realloc(read_buf, realloc_count*DATASIZE);
+        printf("relloc occured\n");
       }
         
       if(packet_complete)
@@ -251,8 +252,11 @@ void *packet_handler(void *conn_param)
       }
     }
     close(conn_data->accepted_fd);
-    //conn_data->thread_active = false;
-    return conn_data;
+    conn_data->thread_active = false;
+    free(read_buf);
+
+    printf("Thread completed\n");
+    return 0;
 }
 
 
@@ -261,8 +265,6 @@ void timer_handler()
 
   time_t rawtime;
   struct tm *info;
-
-
   time( &rawtime );
 
   info = localtime( &rawtime );
@@ -270,9 +272,12 @@ void timer_handler()
   info = localtime( &rawtime );
   strftime(time_val,40,"%Y/%m/%d - %H:%M:%S", info);
   sprintf(buffer,"timestamp: %s\n",time_val);
-  //printf("Formatted date & time : |%s|\n", buffer );
 
   time_increased++;
+
+  printf("signal handler()\n");
+
+  alarm(10);
 
 }
 
@@ -297,6 +302,7 @@ int main(int argc, char *argv[])
   memset(&hints, 0, sizeof hints);
   //A common return variable for system calls
   int  ret;
+
 
 
 
@@ -399,13 +405,13 @@ int main(int argc, char *argv[])
   // }
 
 
-  //struct sigaction timer_sig;
-  //timer_sig.sa_handler = timer_handler;
-  //timer_sig.sa_flags = 0;
-  //sigset_t empty;
-  //sigemptyset(&empty);
-  //timer_sig.sa_mask = empty;
-  //sigaction(SIGALRM, &timer_sig, NULL);
+  struct sigaction timer_sig;
+  timer_sig.sa_handler = timer_handler;
+  timer_sig.sa_flags = 0;
+  sigset_t empty;
+  sigemptyset(&empty);
+  timer_sig.sa_mask = empty;
+  sigaction(SIGALRM, &timer_sig, NULL);
 
   struct sigaction sig_handler;
   sig_handler.sa_handler = signal_handler;
@@ -416,23 +422,25 @@ int main(int argc, char *argv[])
   sigaction(SIGINT | SIGTERM, &sig_handler, NULL);
 
 
-  timer_t timer;
+  //timer_t timer;
 
-  ret = timer_create (CLOCK_REALTIME,NULL,&timer);
-  if (ret)
-    perror ("timer_create");
+  // ret = timer_create (CLOCK_MONOTONIC,NULL,&timer);
+  // if (ret)
+  //   perror ("timer_create");
 
-  struct itimerspec ts;
-  ts.it_interval.tv_sec = 10;
-  ts.it_interval.tv_sec = 0;
-  ts.it_value.tv_sec = 10;
-  ts.it_value.tv_nsec = 0;
+  
+  // ts.it_interval.tv_sec = 1;
+  // ts.it_interval.tv_sec = 0;
+  // ts.it_value.tv_sec = 1;
+  // ts.it_value.tv_nsec = 0;
 
-  ret = timer_settime(timer, 0, &ts, NULL);
-  if(ret)
-    perror("timer_setimer");
+  // ret = timer_settime(timer, 0, &ts, NULL);
+  // if(ret)
+  //   perror("timer_setimer");
 
-  //struct sigaction sigint_act;
+  alarm(10);
+
+  // struct sigaction sigint_act;
 
   // sigint_act.sa_handler = &signal_handler;
   // sigint_act.sa_mask = ;
@@ -440,13 +448,13 @@ int main(int argc, char *argv[])
 
   // sigaction (SIGINT, );
 
-  f_fd = open("/var/tmp/aesdsocketdata",O_RDWR | O_CREAT | O_APPEND, 777);
+  f_fd = open("/var/tmp/aesdsocketdata",O_RDWR | O_CREAT | O_APPEND, 755);
   if(f_fd<0)
     perror("fopen");
 
 
 
-  struct connection_data *conn = malloc(sizeof(struct connection_data));
+  //struct connection_data *conn = malloc(sizeof(struct connection_data));
 
 
   SLIST_HEAD(slisthead, thread_data)head;
@@ -463,14 +471,15 @@ int main(int argc, char *argv[])
   while(!signal_received)
   {
 
+
     //Accepting new connection
     new_fd = accept(socket_fd, (struct sockaddr *)&their_addr, &addr_size);
     if(new_fd < 0)
     {
-
       if(errno == EINTR)
       {
-          //goto join_threads;
+        printf("failed accept()\n");
+          goto jump;
       }
       perror("accept");
       continue;
@@ -485,6 +494,31 @@ int main(int argc, char *argv[])
     syslog(LOG_DEBUG, "Accepted connection from %s",s);
     printf("Accepted connection from %s\n",s);
 
+
+    struct thread_data *thd_pointer;
+    thd_pointer = malloc(sizeof(struct thread_data));
+    struct connection_data *conn = malloc(sizeof(struct connection_data));
+    thd_pointer->con_data = conn;
+    thd_pointer->con_data->thread_active = true;
+    thd_pointer->con_data->accepted_fd = new_fd;
+
+    ret = pthread_create((&thd_pointer->con_data->thread_id), NULL, packet_handler, thd_pointer->con_data);
+    if(ret != 0)
+    {
+        errno = ret;
+        perror("pthread_create");
+        return -1;
+    }
+    else
+    {
+      //thd_pointer->con_data = conn;
+      SLIST_INSERT_HEAD(&head, thd_pointer, entries);
+      num_of_threads++;
+      
+    }
+
+
+    jump:
     finished_writing = true;
 
 
@@ -497,43 +531,34 @@ int main(int argc, char *argv[])
     {
       if(start->con_data->thread_active == false)
       {
+        printf("Before free");
         pthread_join(start->con_data->thread_id,NULL);
         //delete node
 
         SLIST_REMOVE(&head, start, thread_data, entries);
+        
+        free(start->con_data);
         free(start);
+        printf("after free");
+        start = NULL;
         num_of_threads--;
       }
-      start = NULL;
+     
     }
 
+    
+    printf("Thread created and num of threads: %d\n",num_of_threads);
     if(num_of_threads == 0)
     {
       if(time_increased > time_handled)
       {
+        printf("time stamp\n");
         write_to_file(buffer,strlen(buffer));
         time_handled++;
       }
     }
 
-    struct thread_data *thd_pointer;
-    thd_pointer = malloc(sizeof(struct thread_data));
-    conn->thread_active = true;
-    conn->accepted_fd = new_fd;
-    ret = pthread_create((&conn->thread_id), NULL, packet_handler, conn);
 
-    if(ret != 0)
-    {
-        errno = ret;
-        perror("pthread_create");
-        return -1;
-    }
-    else
-    {
-      thd_pointer->con_data = conn;
-      SLIST_INSERT_HEAD(&head, thd_pointer, entries);
-      num_of_threads++;
-    }
 
     //Put it into linked list and rememebr to free
   }

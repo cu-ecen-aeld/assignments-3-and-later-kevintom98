@@ -32,6 +32,22 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     /**
     * TODO: implement per description
     */
+    if(buffer == NULL || entry_offset_byte_rtn ==NULL)
+    {
+        printf("\nPointer passed is NULL (either *buffer or *entry_offset_byte_rtn)");
+        printf("\nNo search done, returning");
+        return NULL;
+    }
+    else if(char_offset > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    {
+        printf("\nOffset variable passed is greater than the size of circualr buffer");
+        printf("\nNo search done, returning");
+        return NULL;
+    }
+
+    if(buffer->entry[char_offset])
+
+
     return NULL;
 }
 
@@ -44,9 +60,38 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 */
 void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
-    /**
-    * TODO: implement per description
-    */
+    if(buffer == NULL || add_entry == NULL)
+    {
+        printf("\nPointer passed is NULL (either *buffer or *add entry)");
+        printf("\nCannot add anything, returning");
+        return;
+    }
+
+    buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
+    buffer->entry[buffer->in_offs].size    = add_entry->size;
+
+    buffer->in_offs++;
+
+    //Wrap around condition
+    if(buffer->in_offs > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+        buffer->in_offs = 0;
+
+    //Checking if it was full previously
+    if((buffer->in_offs == buffer->out_offs) && buffer->full)
+    {
+        buffer->out_offs++;
+        
+        //Wrap around condition
+        if(buffer->out_offs > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+            buffer->out_offs = 0;
+
+        //Making sure that both pointers are at same position
+        assert(buffer->in_offs == buffer->out_offs);
+    }
+
+    //Full condition
+    if((buffer->in_offs == buffer->out_offs) && !(buffer->full))
+        buffer->full = true;
 }
 
 /**

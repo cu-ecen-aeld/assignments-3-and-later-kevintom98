@@ -32,25 +32,30 @@
 struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct aesd_circular_buffer *buffer,
             size_t char_offset, size_t *entry_offset_byte_rtn )
 {
-    if(buffer == NULL || entry_offset_byte_rtn ==NULL)
+    if(buffer == NULL || entry_offset_byte_rtn == NULL)
     {
         printf("\nPointer passed is NULL (either *buffer or *entry_offset_byte_rtn)");
         printf("\nNo search done, returning\n");
         return NULL;
     }
     
-    size_t offset_search = 0;
+    uint64_t search_entry = buffer->out_offs;
 
     for(uint64_t i=0;i<AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;i++)
     {
-        if((buffer->entry[i].size + offset_search) <= char_offset)
+        if((buffer->entry[search_entry].size) >= (char_offset + 1))
         {
-            *entry_offset_byte_rtn = (buffer->entry[i].buffptr[char_offset-offset_search]);
-            return &(buffer->entry[i]);
+            *entry_offset_byte_rtn = char_offset;
+            return &(buffer->entry[search_entry]);
         }
         else
-            offset_search += buffer->entry[i].size;
+            char_offset -= buffer->entry[search_entry].size;
+        
+        search_entry++;
+        if(search_entry >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+            search_entry = 0;
     }
+
     return NULL;
 }
 
@@ -63,12 +68,13 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 */
 void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
-    if(buffer == NULL || add_entry == NULL)
+    if(buffer == NULL)
     {
         printf("\nPointer passed is NULL (either *buffer or *add entry)");
         printf("\nCannot add anything, returning\n");
         return;
     }
+
 
     buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
     buffer->entry[buffer->in_offs].size    = add_entry->size;
@@ -77,25 +83,22 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     buffer->in_offs++;
 
     //Wrap around condition
-    if(buffer->in_offs > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    if(buffer->in_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
         buffer->in_offs = 0;
 
-    //Checking if it was full previously
-    if((buffer->in_offs == buffer->out_offs) && buffer->full)
+    if(buffer->full)
     {
         //Incrementing the output pointer as well if the buffer is full
         buffer->out_offs++;
         
         //Wrap around condition
-        if(buffer->out_offs > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+        if(buffer->out_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
             buffer->out_offs = 0;
-
-        //Making sure that both pointers are at same position
-        assert(buffer->in_offs == buffer->out_offs);
     }
+    
 
     //Full condition
-    if((buffer->in_offs == buffer->out_offs) && !(buffer->full))
+    if(buffer->in_offs == buffer->out_offs && !(buffer->full))
         buffer->full = true;
 }
 

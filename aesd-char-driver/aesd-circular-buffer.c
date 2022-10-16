@@ -15,6 +15,7 @@
 #endif
 
 #include "aesd-circular-buffer.h"
+#include <stdint.h>
 
 /**
  * @param buffer the buffer to search for corresponding offset.  Any necessary locking must be performed by caller.
@@ -29,25 +30,25 @@
 struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct aesd_circular_buffer *buffer,
             size_t char_offset, size_t *entry_offset_byte_rtn )
 {
-    /**
-    * TODO: implement per description
-    */
     if(buffer == NULL || entry_offset_byte_rtn ==NULL)
     {
         printf("\nPointer passed is NULL (either *buffer or *entry_offset_byte_rtn)");
-        printf("\nNo search done, returning");
+        printf("\nNo search done, returning\n");
         return NULL;
     }
-    else if(char_offset > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    
+    size_t offset_search = 0;
+
+    for(uint64_t i=0;i<AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;i++)
     {
-        printf("\nOffset variable passed is greater than the size of circualr buffer");
-        printf("\nNo search done, returning");
-        return NULL;
+        if((buffer->entry[i].size + offset_search) <= char_offset)
+        {
+            *entry_offset_byte_rtn = (buffer->entry[i].buffptr[char_offset-offset_search]);
+            return &(buffer->entry[i]);
+        }
+        else
+            offset_search += buffer->entry[i].size;
     }
-
-    if(buffer->entry[char_offset])
-
-
     return NULL;
 }
 
@@ -63,13 +64,14 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     if(buffer == NULL || add_entry == NULL)
     {
         printf("\nPointer passed is NULL (either *buffer or *add entry)");
-        printf("\nCannot add anything, returning");
+        printf("\nCannot add anything, returning\n");
         return;
     }
 
     buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
     buffer->entry[buffer->in_offs].size    = add_entry->size;
 
+    //Incrementing input pointer
     buffer->in_offs++;
 
     //Wrap around condition
@@ -79,6 +81,7 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     //Checking if it was full previously
     if((buffer->in_offs == buffer->out_offs) && buffer->full)
     {
+        //Incrementing the output pointer as well if the buffer is full
         buffer->out_offs++;
         
         //Wrap around condition

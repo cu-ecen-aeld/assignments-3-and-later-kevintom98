@@ -31,16 +31,49 @@
 #include <unistd.h> //for write function
 #include <arpa/inet.h> // for  inet_ntop
 #include <signal.h> //For handling signals
+#include <pthread.h> //For threading
+#include "queue.h"
+#include <time.h>
+#include <string.h>
+//#include <sys/queue.h>
 
+
+#define DATASIZE 1024
 
 
 int socket_fd;
-
 bool signal_received = false;
 bool finished_writing = false;
-bool deamon = false;
-char *read_buf;
 int f_fd = 0;
+pthread_mutex_t lock;
+char buffer[80];
+
+int time_increased = 0;
+int time_handled = 0;
+
+int num_of_threads = 0;
+
+
+struct connection_data
+{
+  pthread_t thread_id;
+  int accepted_fd;
+  //char conn_addr[INET6_ADDRSTRLEN];
+  bool thread_active;
+  //int file_fd;
+};
+
+
+
+struct thread_data
+{
+    struct connection_data *con_data;
+    SLIST_ENTRY(thread_data) entries;             /* Singly linked list */
+};
+
+
+struct itimerspec ts;
+
 
 
 
@@ -65,13 +98,14 @@ int is_newline_found(char *buf, size_t len)
     if(buf[i]=='\n')
       return i;
       
-  return 0;
+  return -1;
 }
 
 
 
-void write_to_file(int f_fd, char * read_buf, size_t len)
+void write_to_file( char * read_buf, size_t len)
 {
+
   int ret;
   while (len != 0 && (ret = write (f_fd, read_buf, len)) != 0) 
   {
@@ -91,12 +125,12 @@ void write_to_file(int f_fd, char * read_buf, size_t len)
 
 
 
-void send_packets(int f_fd, int soc_fd)
+void send_packets(int soc_fd)
 {
 
   int read_len = 1024;
   char read_buf[read_len];
-  int ret =1, s_ret = 0;
+  int ret = 1, s_ret = 0;
   
   
 
@@ -138,46 +172,155 @@ static void signal_handler(int signo)
   
   if(!finished_writing)
   {
-    free(read_buf);
-    close(f_fd);
+    //free(read_buf);
+    //close(f_fd);
     close(socket_fd);
     closelog();
     unlink("/var/tmp/aesdsocketdata");
     exit(0);
   }
-  
   signal_received = true;
 }
 
 
+void *packet_handler(void *conn_param)
+{
+  bool packet_complete= false;
+  int r_ret;
+  size_t len, total_len;
+  uint64_t realloc_count = 1;
+  char *read_buf = NULL;
+
+  //Allocating initial buffer
+  read_buf = malloc(DATASIZE);
+
+  struct connection_data *conn_data = (struct connection_data *)conn_param;
+
+
+  //printf("\nFD Thread: %d", conn_data->accepted_fd);
+
+  while((!packet_complete))
+    {
+
+      r_ret = recv(conn_data->accepted_fd, (read_buf+((realloc_count-1)*DATASIZE)), DATASIZE, 0);
+      
+      if(r_ret == 0)
+      {
+        //Connection is closed
+        // printf("\nClosed connection from %s\n",s);
+        // syslog(LOG_DEBUG, "\nClosed connection from %s\n",s);
+        printf("closing thread\n");
+        close(conn_data->accepted_fd);
+        break;
+      }
+      else if(r_ret < 1)
+      {
+        perror("recv");
+        free(read_buf); //Freeing
+        close(conn_data->accepted_fd);
+        break;
+      }
+
+      len = ((realloc_count-1)*DATASIZE) + r_ret;   
+
+      total_len = is_newline_found(read_buf,len);
+
+     printf("\nr_ret %d total_len %ld\n",r_ret,total_len);
+
+      if(total_len > 0)
+        packet_complete = true;
+        
+ 
+      if(!packet_complete)
+      {
+        realloc_count++;
+        read_buf = realloc(read_buf, realloc_count*DATASIZE);
+        printf("relloc occured\n");
+      }
+        
+      if(packet_complete)
+      {
+
+        pthread_mutex_lock(&lock);
+        write_to_file(read_buf, len);
+        printf("\n%s %ld\n",read_buf,conn_data->thread_id);
+        send_packets(conn_data->accepted_fd);
+        pthread_mutex_unlock(&lock);
+        //close(f_fd);
+        //Setting the variable to read next packet
+        packet_complete = false;
+      }
+    }
+    close(conn_data->accepted_fd);
+    conn_data->thread_active = false;
+    free(read_buf);
+
+    printf("Thread completed\n");
+    return 0;
+}
+
+
+void timer_handler()
+{
+
+  time_t rawtime;
+  struct tm *info;
+  time( &rawtime );
+
+  info = localtime( &rawtime );
+  char time_val[40];
+  info = localtime( &rawtime );
+  strftime(time_val,40,"%Y/%m/%d - %H:%M:%S", info);
+  sprintf(buffer,"timestamp: %s\n",time_val);
+
+  time_increased++;
+
+  printf("signal handler()\n");
+
+  alarm(10);
+
+}
 
 
 
 int main(int argc, char *argv[])
 {
 
+  bool deamon = false;
+
+  //Checking if the user requested to run the program as deamon
   if(argc >= 2)
     if(strcmp(argv[1],"-d")  == 0)
       deamon = true;
 
 
-
+  //
   char s[INET6_ADDRSTRLEN];
   struct addrinfo hints, *conn_info;
+
+  //Setting the structure elemetns to 0
   memset(&hints, 0, sizeof hints);
+  //A common return variable for system calls
   int  ret;
 
-  read_buf = malloc(1024);
 
+
+
+  //Socket parameters
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_flags = AI_PASSIVE;
 
+  //Filling the structure with address info
   getaddrinfo(NULL, "9000", &hints, &conn_info);
 
   socket_fd = socket(conn_info->ai_family,conn_info->ai_socktype, conn_info->ai_protocol);
   if(socket_fd == -1)
+  {
+    printf("\nCannot create socket!");
     return -1;
+  }
+    
 
   ret = bind(socket_fd, conn_info->ai_addr, conn_info->ai_addrlen);
   if(ret < 0)
@@ -186,6 +329,7 @@ int main(int argc, char *argv[])
     return -1;
   }
 
+  //Freeing the address info after use
   freeaddrinfo(conn_info);
 
   //Starting the deamon
@@ -196,7 +340,7 @@ int main(int argc, char *argv[])
       pid = fork ();
       if (pid == -1)
       {
-          free(read_buf);
+          //free(read_buf);
           close(socket_fd);
           perror("fork");
           return -1;
@@ -210,14 +354,14 @@ int main(int argc, char *argv[])
       {
         if(setsid()==-1)
         {
-            free(read_buf);
+            //free(read_buf);
             perror("session");
             close(socket_fd);
             return -1;
         }
         if(chdir("/")==-1)
         {
-            free(read_buf);
+            //free(read_buf);
             perror("chdir");
             close(socket_fd);
             return -1;
@@ -244,99 +388,189 @@ int main(int argc, char *argv[])
   socklen_t addr_size = sizeof their_addr;
 
 
+  //File for writing read content
   int  new_fd = 0;
-  f_fd = open("/var/tmp/aesdsocketdata",O_RDWR | O_CREAT | O_TRUNC | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP |S_IWGRP | S_IROTH | S_IWOTH); //666 equivalent value
-
-
   
 
-  size_t len, total_len;
-  int r_ret = 0;
-  bool packet_complete = false;
-  uint64_t realloc_count = 1;
+  // //Registering signals to use the signal handler
+  // if (signal (SIGINT, signal_handler) == SIG_ERR) 
+  // {
+  //   perror("signal()");
+  //   return -1;
+  // }
+  // if (signal (SIGTERM, signal_handler) == SIG_ERR) 
+  // {
+  //   perror("signal()");
+  //   return -1;
+  // }
 
 
-  if (signal (SIGINT, signal_handler) == SIG_ERR) 
+  struct sigaction timer_sig;
+  timer_sig.sa_handler = timer_handler;
+  timer_sig.sa_flags = 0;
+  sigset_t empty;
+  sigemptyset(&empty);
+  timer_sig.sa_mask = empty;
+  sigaction(SIGALRM, &timer_sig, NULL);
+
+  struct sigaction sig_handler;
+  sig_handler.sa_handler = signal_handler;
+  sig_handler.sa_flags = 0;
+  sigset_t empty_1;
+  sigemptyset(&empty_1);
+  sig_handler.sa_mask = empty_1;
+  sigaction(SIGINT | SIGTERM, &sig_handler, NULL);
+
+
+  //timer_t timer;
+
+  // ret = timer_create (CLOCK_MONOTONIC,NULL,&timer);
+  // if (ret)
+  //   perror ("timer_create");
+
+  
+  // ts.it_interval.tv_sec = 1;
+  // ts.it_interval.tv_sec = 0;
+  // ts.it_value.tv_sec = 1;
+  // ts.it_value.tv_nsec = 0;
+
+  // ret = timer_settime(timer, 0, &ts, NULL);
+  // if(ret)
+  //   perror("timer_setimer");
+
+  alarm(10);
+
+  // struct sigaction sigint_act;
+
+  // sigint_act.sa_handler = &signal_handler;
+  // sigint_act.sa_mask = ;
+  // sigint_act.sa_sigaction = NULL;
+
+  // sigaction (SIGINT, );
+
+  f_fd = open("/var/tmp/aesdsocketdata",O_RDWR | O_CREAT | O_APPEND, 755);
+  if(f_fd<0)
+    perror("fopen");
+
+
+
+  //struct connection_data *conn = malloc(sizeof(struct connection_data));
+
+
+  SLIST_HEAD(slisthead, thread_data)head;
+  SLIST_INIT(&head);
+
+  if (pthread_mutex_init(&lock, NULL) != 0)
   {
-    perror("signal()");
-    return -1;
-  }
-  if (signal (SIGTERM, signal_handler) == SIG_ERR) 
-  {
-    perror("signal()");
-    return -1;
+      perror("\npthread_mutex_init\n");
+      return -1;
   }
 
-
+ 
 
   while(!signal_received)
   {
+
+
+    //Accepting new connection
     new_fd = accept(socket_fd, (struct sockaddr *)&their_addr, &addr_size);
-    if(new_fd< 0)
+    if(new_fd < 0)
     {
+      if(errno == EINTR)
+      {
+        printf("failed accept()\n");
+          goto jump;
+      }
       perror("accept");
-      return -1;
+      continue;
     }
 
+
+    //printf("\nFD Main: %d", new_fd);
+
+
+    //Parsing the address to print
     inet_ntop(their_addr.ss_family,get_in_addr((struct sockaddr *)&their_addr),s, sizeof s);
     syslog(LOG_DEBUG, "Accepted connection from %s",s);
-    printf("Accepted connection from %s",s);
+    printf("Accepted connection from %s\n",s);
 
+
+    struct thread_data *thd_pointer;
+    thd_pointer = malloc(sizeof(struct thread_data));
+    struct connection_data *conn = malloc(sizeof(struct connection_data));
+    thd_pointer->con_data = conn;
+    thd_pointer->con_data->thread_active = true;
+    thd_pointer->con_data->accepted_fd = new_fd;
+
+    ret = pthread_create((&thd_pointer->con_data->thread_id), NULL, packet_handler, thd_pointer->con_data);
+    if(ret != 0)
+    {
+        errno = ret;
+        perror("pthread_create");
+        return -1;
+    }
+    else
+    {
+      //thd_pointer->con_data = conn;
+      SLIST_INSERT_HEAD(&head, thd_pointer, entries);
+      num_of_threads++;
+      
+    }
+
+
+    jump:
     finished_writing = true;
 
-    while((!packet_complete))
+
+    struct thread_data *start = NULL;
+    struct thread_data *next = NULL;
+
+
+    //Watching if thread ends
+    SLIST_FOREACH_SAFE(start, &head, entries, next)
     {
-      
-      r_ret = recv(new_fd, (read_buf+((realloc_count-1)*1024)), 1024, 0);
-      
-      if(r_ret == 0)
+      if(start->con_data->thread_active == false)
       {
-        //Connection is closed
-        printf("Accepted connection from %s",s);
-        syslog(LOG_DEBUG, "Closed connection from %s",s);
-        break;
-      }
-      else if(r_ret < 1)
-      {
-        perror("recv");
-        free(read_buf); //Freeing
-        return -1;
-      }
+        printf("Before free");
+        pthread_join(start->con_data->thread_id,NULL);
+        //delete node
 
-      //len = strlen(read_buf);
-      len = ((realloc_count-1)*1024) + r_ret;   
-
-      total_len = is_newline_found(read_buf,len);
-
-      if(total_len > 0)
-        packet_complete = true;
-
-      if(!packet_complete)
-      {
-        realloc_count++;
-        read_buf = realloc(read_buf, realloc_count*1024);
-      }
+        SLIST_REMOVE(&head, start, thread_data, entries);
         
-      if(packet_complete)
-      {
-        write_to_file(f_fd, read_buf, len);
-        send_packets(f_fd, new_fd);
+        free(start->con_data);
+        free(start);
+        printf("after free");
+        start = NULL;
+        num_of_threads--;
+      }
+     
+    }
 
-        //Setting the variable to read next packet
-        packet_complete = false;
+    
+    printf("Thread created and num of threads: %d\n",num_of_threads);
+    if(num_of_threads == 0)
+    {
+      if(time_increased > time_handled)
+      {
+        printf("time stamp\n");
+        write_to_file(buffer,strlen(buffer));
+        time_handled++;
       }
     }
 
-    close(new_fd);
-    finished_writing = false;
+
+
+    //Put it into linked list and rememebr to free
   }
 
-
-  //Closing and freeing all the opened f_ds andmalloced buffers
-  free(read_buf);
+  //Closing and freeing all the opened f_ds and malloced buffers
+  //free(read_buf);
   close(socket_fd);
   close(f_fd);
+  pthread_mutex_destroy(&lock);
   closelog();
   unlink("/var/tmp/aesdsocketdata");
   return 0;
+
+
 }

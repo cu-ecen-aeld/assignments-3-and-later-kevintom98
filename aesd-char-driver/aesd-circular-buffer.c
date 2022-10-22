@@ -32,7 +32,7 @@
 struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct aesd_circular_buffer *buffer,
             size_t char_offset, size_t *entry_offset_byte_rtn )
 {
-    if(buffer == NULL || entry_offset_byte_rtn == NULL)
+    if(buffer == NULL)
     {
         printf("\nPointer passed is NULL (either *buffer or *entry_offset_byte_rtn)");
         printf("\nNo search done, returning\n");

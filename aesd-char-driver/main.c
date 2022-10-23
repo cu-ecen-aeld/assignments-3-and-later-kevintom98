@@ -67,7 +67,13 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     struct aesd_buffer_entry *aesd_entry_ret;
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
 
-    mutex_lock_interruptible(&aesd_device.aesd_char_mut);
+    retval = mutex_lock_interruptible(&aesd_device.aesd_char_mut);
+    if(retval != 0)
+    {
+        PDEBUG("Could not aquire mutex");
+        return retval;
+    }
+    
     aesd_entry_ret = aesd_circular_buffer_find_entry_offset_for_fpos(&aesd_device.circular_buffer, (*f_pos), entry_offset_byte_rtn);
     if(aesd_buffer_entry == NULL)
     {
@@ -81,13 +87,19 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 
         if(copy_to_user(buf, aesd_entry_ret->buffptr, count))
         {
-
+            retval = -EFAULT;
+            PDEBUG("copy_from_user() failed");
+            goto out;
         }
     }
 
-    mutex_unlock_interruptible(&aesd_device.aesd_char_mut);
-
-
+    out:
+    retval = mutex_unlock_interruptible(&aesd_device.aesd_char_mut);
+    if(retval != 0)
+    {
+        PDEBUG("Could not aquire mutex");
+        return retval;
+    }
     return retval;
 }
 

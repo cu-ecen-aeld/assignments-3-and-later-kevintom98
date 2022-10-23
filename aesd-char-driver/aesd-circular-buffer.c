@@ -66,8 +66,11 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 * Any necessary locking must be handled by the caller
 * Any memory referenced in @param add_entry must be allocated by and/or must have a lifetime managed by the caller.
 */
-void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
+char* aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
+
+    char *ret_val = NULL;
+
     if(buffer == NULL)
     {
         printf("\nPointer passed is NULL (either *buffer or *add entry)");
@@ -88,18 +91,24 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
 
     if(buffer->full)
     {
+        ret_val = (char *)buffer->entry[buffer->out_offs].buffptr;
+
         //Incrementing the output pointer as well if the buffer is full
         buffer->out_offs++;
         
         //Wrap around condition
         if(buffer->out_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
             buffer->out_offs = 0;
+
+        
     }
     
 
     //Full condition
     if(buffer->in_offs == buffer->out_offs && !(buffer->full))
         buffer->full = true;
+
+    return ret_val;
 }
 
 /**

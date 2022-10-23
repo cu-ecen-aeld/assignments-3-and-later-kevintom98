@@ -61,45 +61,44 @@ int aesd_release(struct inode *inode, struct file *filp)
 ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos)
 {
-    ssize_t retval = 0;
-    size_t *entry_offset_byte_rtn=NULL;
-    size_t byte_postion = 0;
+    ssize_t retval = 0, no_byte_to_copy;
+    size_t *entry_offset_byte_rtn;
     struct aesd_buffer_entry *aesd_entry_ret;
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
 
-    retval = mutex_lock_interruptible(&aesd_device.aesd_char_mut);
+    retval = mutex_lock_interruptible(&filp->private_data.aesd_char_mut);
     if(retval != 0)
     {
         PDEBUG("Could not aquire mutex");
         return retval;
     }
     
-    aesd_entry_ret = aesd_circular_buffer_find_entry_offset_for_fpos(&aesd_device.circular_buffer, (*f_pos), entry_offset_byte_rtn);
+    aesd_entry_ret = aesd_circular_buffer_find_entry_offset_for_fpos((&filp->private_data.circular_buffer, (*f_pos), entry_offset_byte_rtn);
     if(aesd_buffer_entry == NULL)
     {
-        mutex_unlock_interruptible(&aesd_device.aesd_char_mut); 
+        *f_pos = 0;
         PDEBUG("Nothing was read");
-        return 0;  
+        retval = 0;
+        goto out; 
     }
-    else
-    {
-        //byte_postion = aesd_entry_ret->size - entry_offset_byte_rtn
 
-        if(copy_to_user(buf, aesd_entry_ret->buffptr, count))
-        {
-            retval = -EFAULT;
-            PDEBUG("copy_from_user() failed");
-            goto out;
-        }
+    no_byte_to_copy = aesd_entry_ret->size - entry_offset_byte_rtn;
+    if(count < no_byte_to_copy)
+        no_byte_to_copy = count;
+    
+    *f_pos += no_byte_to_copy;
+
+    if(copy_to_user(buf, aesd_entry_ret->buffptr[entry_offset_byte_rtn], no_byte_to_copy))
+    {
+        retval = -EFAULT;
+        PDEBUG("copy_from_user() failed");
+        goto out;
     }
+    retval = no_byte_to_copy;
+
 
     out:
-    retval = mutex_unlock_interruptible(&aesd_device.aesd_char_mut);
-    if(retval != 0)
-    {
-        PDEBUG("Could not aquire mutex");
-        return retval;
-    }
+    mutex_unlock(&aesd_device.aesd_char_mut);
     return retval;
 }
 
@@ -185,7 +184,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 }
 
                 //copying content into packet
-                memcpy( packet, user_krnl_buf[start_of_current_packet] ,size_of_current_packet);
+                memcpy(packet, user_krnl_buf[start_of_current_packet] ,size_of_current_packet);
                 
                 //Setting variables to write into the buffer
                 buffer_entry->buffptr = packet[0];
@@ -239,7 +238,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     }
 
     out:
-    retval = mutex_unlock_interruptible(&aesd_device.aesd_char_mut);
+    retval = mutex_unlock(&aesd_device.aesd_char_mut);
     if(retval != 0)
     {
         PDEBUG("Could not unlock mutex");

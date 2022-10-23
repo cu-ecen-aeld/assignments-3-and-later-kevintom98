@@ -104,6 +104,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     char *user_krnl_buf = NULL;
     char *packet = NULL;
     int size_of_packet =0, i=0, size_of_current_packet, start_of_current_packet = 0;
+    char *c_buf_return;
     
     //Variable used for writing into buffer
     struct aesd_buffer_entry *buffer_entry = NULL;
@@ -111,16 +112,27 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
 
     //filp->private_data.circular_buffer;
-    mutex_lock_interruptible(&filp->private_data.aesd_char_mut);
+    retval = mutex_lock_interruptible(&filp->private_data.aesd_char_mut);
+    if(retval != 0)
+    {
+        PDEBUG("Could not aquire mutex");
+        return retval;
+    }
 
 
     //allocating space for user data in kernel space
     user_krnl_buf = (char *)kmalloc(count,GFP_KERNEL);
+    if(user_krnl_buf == NULL)
+    {
+        PDEBUG("kmalloc() failed");
+        return retval;
+    }
 
     //copying data from userspace to kernel space
     if (copy_from_user(user_krnl_buf, buf, count)) 
     {
         retval = -EFAULT;
+        PDEBUG("copy_from_user() failed");
         goto out;
     }
 
@@ -138,6 +150,11 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             {
                 //have to  realloc
                 incomplete_packet = (char *)krealloc((incomplete_packet_size+size_of_current_packet),GFP_KERNEL);
+                if(incomplete_packet == NULL)
+                {
+                    PDEBUG("krealloc() failed");
+                    goto out;
+                }
                 
                 //copying content into packet
                 memcpy( incomplete_packet[incomplete_packet_size/sizeof(user_krnl_buf[0])], user_krnl_buf[start_of_current_packet] ,size_of_current_packet);
@@ -149,6 +166,11 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             else
             {
                 packet = (char *)kmalloc(size_of_current_packet, GFP_KERNEL);
+                if(packet == NULL)
+                {
+                    PDEBUG("kmalloc() failed");
+                    goto out;
+                }
 
                 //copying content into packet
                 memcpy( packet, user_krnl_buf[start_of_current_packet] ,size_of_current_packet);
@@ -158,13 +180,10 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 buffer_entry->size = size_of_current_packet;
             }
 
-
             //Add it to buffer
-            aesd_circular_buffer_add_entry(filp->private_data.circular_buffer, buffer_entry);
-
-            /**
-             * TODO: Check return and free the pointer returned
-             */
+            c_buf_return = aesd_circular_buffer_add_entry(filp->private_data.circular_buffer, buffer_entry);
+            if(c_buf_return != NULL)
+                kfree(c_buf_return);
             
 
             //Updating start of next packet position
@@ -184,12 +203,22 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             {
                 //have to  realloc
                 incomplete_packet = (char *)krealloc((incomplete_packet_size+size_of_current_packet),GFP_KERNEL);
+                if(incomplete_packet == NULL)
+                {
+                    PDEBUG("krealloc() failed");
+                    goto out;
+                }
                 memcpy( incomplete_packet[incomplete_packet_size/sizeof(user_krnl_buf[0])] , user_krnl_buf[start_of_current_packet] ,size_of_current_packet);
                 incomplete_packet_size += size_of_current_packet;
             }
             else
             {
                 incomplete_packet = (char *)kmalloc(size_of_current_packet,GFP_KERNEL);
+                if(incomplete_packet == NULL)
+                {
+                    PDEBUG("kmalloc() failed");
+                    goto out;
+                }
                 memcpy( incomplete_packet[0] , user_krnl_buf[start_of_current_packet] ,size_of_current_packet);
                 incomplete_packet_size = size_of_current_packet;
             }
@@ -197,17 +226,24 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
     }
 
-
-
     out:
-        mutex_unlock_interruptible(&aesd_device.aesd_char_mut);
+    retval = mutex_unlock_interruptible(&aesd_device.aesd_char_mut);
+    if(retval != 0)
+    {
+        PDEBUG("Could not unlock mutex");
         kfree(user_krnl_buf);
-        kfree(packet);
+        return retval;
+    }
 
-
-
+    kfree(user_krnl_buf);
     return retval;
 }
+
+
+
+
+
+
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
     .read =     aesd_read,
@@ -241,7 +277,6 @@ int aesd_init_module(void)
     result = alloc_chrdev_region(&dev, aesd_minor, 1,
             "aesdchar");
     
-    //
     aesd_major = MAJOR(dev);
     if (result < 0) {
         printk(KERN_WARNING "Can't get major %d\n", aesd_major);
@@ -249,11 +284,7 @@ int aesd_init_module(void)
     }
     memset(&aesd_device,0,sizeof(struct aesd_dev));
 
-    /**
-     * TODO: initialize the AESD specific portion of the device
-     */
 
-    //init_MUTEX(&aesd_dev.aesd_char_mut);
     mutex_init(&aesd_dev.aesd_char_mut);
     result = aesd_setup_cdev(&aesd_device);
 
@@ -270,9 +301,7 @@ void aesd_cleanup_module(void)
 
     cdev_del(&aesd_device.cdev);
 
-    /**
-     * TODO: cleanup AESD specific poritions here as necessary
-     */
+
     mutex_destroy(&aesd_dev.aesd_char_mut);
     unregister_chrdev_region(devno, 1);
 }

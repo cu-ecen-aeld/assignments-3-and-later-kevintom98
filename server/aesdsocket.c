@@ -38,6 +38,9 @@
 //#include <sys/queue.h>
 
 
+#define USE_AESD_CHAR_DEVICE 0
+
+
 #define DATASIZE 1024
 
 
@@ -176,7 +179,11 @@ static void signal_handler(int signo)
     //close(f_fd);
     close(socket_fd);
     closelog();
-    unlink("/var/tmp/aesdsocketdata");
+    #if USE_AESD_CHAR_DEVICE
+      unlink("/dev/aesdchar");
+    #else
+      unlink("/var/tmp/aesdsocketdata");
+    #endif
     exit(0);
   }
   signal_received = true;
@@ -260,6 +267,9 @@ void *packet_handler(void *conn_param)
 }
 
 
+
+
+#if !USE_AESD_CHAR_DEVICE
 void timer_handler()
 {
 
@@ -280,7 +290,7 @@ void timer_handler()
   alarm(10);
 
 }
-
+#endif
 
 
 int main(int argc, char *argv[])
@@ -404,7 +414,7 @@ int main(int argc, char *argv[])
   //   return -1;
   // }
 
-
+  #if !USE_AESD_CHAR_DEVICE
   struct sigaction timer_sig;
   timer_sig.sa_handler = timer_handler;
   timer_sig.sa_flags = 0;
@@ -412,6 +422,7 @@ int main(int argc, char *argv[])
   sigemptyset(&empty);
   timer_sig.sa_mask = empty;
   sigaction(SIGALRM, &timer_sig, NULL);
+  #endif
 
   struct sigaction sig_handler;
   sig_handler.sa_handler = signal_handler;
@@ -438,7 +449,9 @@ int main(int argc, char *argv[])
   // if(ret)
   //   perror("timer_setimer");
 
+  #if !USE_AESD_CHAR_DEVICE
   alarm(10);
+  #endif
 
   // struct sigaction sigint_act;
 
@@ -448,7 +461,15 @@ int main(int argc, char *argv[])
 
   // sigaction (SIGINT, );
 
-  f_fd = open("/var/tmp/aesdsocketdata",O_RDWR | O_CREAT | O_APPEND, 755);
+
+
+
+  #if USE_AESD_CHAR_DEVICE
+  f_fd = open("/dev/aesdchar",O_RDWR | O_CREAT | O_APPEND, 755);
+  #else
+    f_fd = open("/var/tmp/aesdsocketdata",O_RDWR | O_CREAT | O_APPEND, 755);
+  #endif
+
   if(f_fd<0)
     perror("fopen");
 
@@ -514,7 +535,6 @@ int main(int argc, char *argv[])
       //thd_pointer->con_data = conn;
       SLIST_INSERT_HEAD(&head, thd_pointer, entries);
       num_of_threads++;
-      
     }
 
 
@@ -569,8 +589,12 @@ int main(int argc, char *argv[])
   close(f_fd);
   pthread_mutex_destroy(&lock);
   closelog();
-  unlink("/var/tmp/aesdsocketdata");
+  
+  #if USE_AESD_CHAR_DEVICE
+    unlink("/dev/aesdchar");
+  #else
+    unlink("/var/tmp/aesdsocketdata");
+  #endif
+
   return 0;
-
-
 }

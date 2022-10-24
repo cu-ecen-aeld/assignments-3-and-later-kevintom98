@@ -41,8 +41,8 @@ struct aesd_dev aesd_device;
 
 int aesd_open(struct inode *inode, struct file *filp)
 {
-    PDEBUG("open");
     struct aesd_dev *dev;
+    PDEBUG("open");
     dev = container_of(inode->i_cdev,struct aesd_dev, cdev);
     filp->private_data = dev;
     return 0;
@@ -323,10 +323,20 @@ int aesd_init_module(void)
 
 void aesd_cleanup_module(void)
 {
+
+    int start, stop;
     dev_t devno = MKDEV(aesd_major, aesd_minor);
+    start = aesd_device.circular_buffer.out_offs;
+    stop = aesd_device.circular_buffer.in_offs;
 
     cdev_del(&aesd_device.cdev);
 
+
+    for ( ; start != stop  || aesd_device.circular_buffer.full ; start = (start+1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    {
+        kfree(aesd_device.circular_buffer.entry[start].buffptr);
+        aesd_device.circular_buffer.full = false;
+    }
 
     mutex_destroy(&aesd_device.aesd_char_mut);
 

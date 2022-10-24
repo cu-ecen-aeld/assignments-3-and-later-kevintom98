@@ -208,7 +208,10 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             //Add it to buffer
             PDEBUG("writing to buffer");
             
+            PDEBUG("Enqueue buffer %p",buffer_entry.buffptr);
+
             c_buf_return = aesd_circular_buffer_add_entry(&driver_data->circular_buffer, &buffer_entry);
+            PDEBUG("Return buffer %p",c_buf_return);
             if(c_buf_return != NULL)
             {
                 kfree(c_buf_return);
@@ -259,6 +262,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         }
 
     }
+
+    retval = count;
 
     out:
     mutex_unlock( &driver_data->aesd_char_mut );

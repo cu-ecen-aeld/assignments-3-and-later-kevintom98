@@ -40,17 +40,24 @@
 
 #define DATASIZE 1024
 
+#define USE_AESD_CHAR_DEVICE 1
+
+
+
 
 int socket_fd;
 bool signal_received = false;
 bool finished_writing = false;
-int f_fd = 0;
+//int f_fd = 0;
+
+#if !USE_AESD_CHAR_DEVICE 
 pthread_mutex_t lock;
+#endif
+
 char buffer[80];
 
 int time_increased = 0;
 int time_handled = 0;
-
 int num_of_threads = 0;
 
 
@@ -103,7 +110,7 @@ int is_newline_found(char *buf, size_t len)
 
 
 
-void write_to_file( char * read_buf, size_t len)
+void write_to_file( int f_fd, char * read_buf, size_t len)
 {
 
   int ret;
@@ -125,7 +132,7 @@ void write_to_file( char * read_buf, size_t len)
 
 
 
-void send_packets(int soc_fd)
+void send_packets(int f_fd, int soc_fd)
 {
 
   int read_len = 1024;
@@ -135,12 +142,20 @@ void send_packets(int soc_fd)
   
 
   //Seeking to the beginning of file
+
+  #if !USE_AESD_CHAR_DEVICE 
   ret = lseek(f_fd,0,SEEK_SET);
   if(ret < 0)
   {
     perror("lseek");
     return;
   }
+  #else
+  // close(f_fd);
+  // f_fd = open("/dev/aesdchar",O_RDWR | O_CREAT | O_APPEND, 755);
+  // if(f_fd<0)
+  //   perror("fopen");
+  #endif
 
   //Reading from file
   do
@@ -176,7 +191,11 @@ static void signal_handler(int signo)
     //close(f_fd);
     close(socket_fd);
     closelog();
-    unlink("/var/tmp/aesdsocketdata");
+
+    #if !USE_AESD_CHAR_DEVICE
+      unlink("/var/tmp/aesdsocketdata");
+    #endif
+
     exit(0);
   }
   signal_received = true;
@@ -198,6 +217,10 @@ void *packet_handler(void *conn_param)
 
 
   //printf("\nFD Thread: %d", conn_data->accepted_fd);
+
+    int f_fd = open("/dev/aesdchar",O_RDWR | O_CREAT | O_APPEND, 755);
+    if(f_fd<0)
+      perror("fopen");
 
   while((!packet_complete))
     {
@@ -241,11 +264,17 @@ void *packet_handler(void *conn_param)
       if(packet_complete)
       {
 
+        #if !USE_AESD_CHAR_DEVICE
         pthread_mutex_lock(&lock);
-        write_to_file(read_buf, len);
+        #endif
+        write_to_file(f_fd, read_buf, len);   
         printf("\n%s %ld\n",read_buf,conn_data->thread_id);
-        send_packets(conn_data->accepted_fd);
+        send_packets(f_fd, conn_data->accepted_fd);
+
+        #if !USE_AESD_CHAR_DEVICE
         pthread_mutex_unlock(&lock);
+        #endif
+
         //close(f_fd);
         //Setting the variable to read next packet
         packet_complete = false;
@@ -254,11 +283,13 @@ void *packet_handler(void *conn_param)
     close(conn_data->accepted_fd);
     conn_data->thread_active = false;
     free(read_buf);
+    close(f_fd);
 
     printf("Thread completed\n");
     return 0;
 }
 
+#if !USE_AESD_CHAR_DEVICE
 
 void timer_handler()
 {
@@ -280,7 +311,7 @@ void timer_handler()
   alarm(10);
 
 }
-
+#endif
 
 
 int main(int argc, char *argv[])
@@ -302,8 +333,6 @@ int main(int argc, char *argv[])
   memset(&hints, 0, sizeof hints);
   //A common return variable for system calls
   int  ret;
-
-
 
 
   //Socket parameters
@@ -404,6 +433,7 @@ int main(int argc, char *argv[])
   //   return -1;
   // }
 
+  #if !USE_AESD_CHAR_DEVICE
 
   struct sigaction timer_sig;
   timer_sig.sa_handler = timer_handler;
@@ -412,6 +442,8 @@ int main(int argc, char *argv[])
   sigemptyset(&empty);
   timer_sig.sa_mask = empty;
   sigaction(SIGALRM, &timer_sig, NULL);
+
+  #endif
 
   struct sigaction sig_handler;
   sig_handler.sa_handler = signal_handler;
@@ -422,6 +454,7 @@ int main(int argc, char *argv[])
   sigaction(SIGINT | SIGTERM, &sig_handler, NULL);
 
 
+  #if !USE_AESD_CHAR_DEVICE
   //timer_t timer;
 
   // ret = timer_create (CLOCK_MONOTONIC,NULL,&timer);
@@ -447,10 +480,14 @@ int main(int argc, char *argv[])
   // sigint_act.sa_sigaction = NULL;
 
   // sigaction (SIGINT, );
+  #endif
 
-  f_fd = open("/var/tmp/aesdsocketdata",O_RDWR | O_CREAT | O_APPEND, 755);
-  if(f_fd<0)
-    perror("fopen");
+
+  #if !USE_AESD_CHAR_DEVICE
+    f_fd = open("/var/tmp/aesdsocketdata",O_RDWR | O_CREAT | O_APPEND, 755);
+    if(f_fd<0)
+      perror("fopen");
+  #endif
 
 
 
@@ -460,12 +497,13 @@ int main(int argc, char *argv[])
   SLIST_HEAD(slisthead, thread_data)head;
   SLIST_INIT(&head);
 
+  #if !USE_AESD_CHAR_DEVICE
   if (pthread_mutex_init(&lock, NULL) != 0)
   {
       perror("\npthread_mutex_init\n");
       return -1;
   }
-
+  #endif
  
 
   while(!signal_received)
@@ -548,6 +586,8 @@ int main(int argc, char *argv[])
 
     
     printf("Thread created and num of threads: %d\n",num_of_threads);
+
+    #if !USE_AESD_CHAR_DEVICE 
     if(num_of_threads == 0)
     {
       if(time_increased > time_handled)
@@ -557,7 +597,7 @@ int main(int argc, char *argv[])
         time_handled++;
       }
     }
-
+    #endif
 
 
     //Put it into linked list and rememebr to free
@@ -566,10 +606,15 @@ int main(int argc, char *argv[])
   //Closing and freeing all the opened f_ds and malloced buffers
   //free(read_buf);
   close(socket_fd);
-  close(f_fd);
-  pthread_mutex_destroy(&lock);
+  //close(f_fd);
+  #if !USE_AESD_CHAR_DEVICE
+    pthread_mutex_destroy(&lock);
+  #endif
   closelog();
-  unlink("/var/tmp/aesdsocketdata");
+  #if !USE_AESD_CHAR_DEVICE
+    unlink("/var/tmp/aesdsocketdata");
+  #endif
+
   return 0;
 
 

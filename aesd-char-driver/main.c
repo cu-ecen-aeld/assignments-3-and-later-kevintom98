@@ -76,6 +76,8 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         return retval;
     }
     
+    PDEBUG("Offset set : %lld", filp->f_pos);
+
     aesd_entry_ret = aesd_circular_buffer_find_entry_offset_for_fpos(&driver_data->circular_buffer, *f_pos, &entry_offset_byte_rtn);
     if(aesd_entry_ret == NULL)
     {
@@ -265,13 +267,6 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 }
 
 
-long aesd_adjust_file_offset(struct file *filp,unsigned int write_cmd, unsigned int write_cmd_offset)
-{
-    
-
-
-}
-
 loff_t  aesd_llseek(struct file *filp, loff_t offset, int whence)
 {
     loff_t retval;
@@ -308,6 +303,52 @@ loff_t  aesd_llseek(struct file *filp, loff_t offset, int whence)
 }
 
 
+long aesd_adjust_file_offset(struct file *filp,unsigned int write_cmd, unsigned int write_cmd_offset)
+{
+    loff_t fpos=0;
+    long retval;
+    struct aesd_dev *driver_data = filp->private_data;
+    int i=0;
+
+    //Aquiring mutex
+    retval = mutex_lock_interruptible(&driver_data->aesd_char_mut);
+    if(retval != 0)
+    {
+        retval = -ERESTARTSYS;
+        PDEBUG("Could not aquire mutex");
+        return retval;
+    }
+
+    if(write_cmd > (AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED-1))
+    {
+        retval = -EINVAL;
+        goto out;
+    }
+
+    if(write_cmd_offset >= driver_data->circular_buffer.entry[write_cmd].size)
+    {
+        retval = -EINVAL;
+        goto out;       
+    }
+        
+    //going thorugh each command
+    for(i=0;i<write_cmd;i++)
+        fpos +=  driver_data->circular_buffer.entry[i].size;
+    
+    //updating fileposition
+    fpos += write_cmd_offset;
+
+    //setting the file position
+    filp->f_pos = fpos;
+
+    PDEBUG("Offset set to : %lld", filp->f_pos);
+    //unlocking the mutex
+    out:
+    mutex_unlock( &driver_data->aesd_char_mut );
+    return retval;
+}
+
+
 long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
     long retval;
@@ -331,7 +372,7 @@ long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         return -ENOTTY;
 
 
-    case(cmd)
+    switch(cmd)
     {
         case AESDCHAR_IOCSEEKTO:
         {
@@ -348,6 +389,7 @@ long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         }
     }
 
+    return retval;
 
 }
 

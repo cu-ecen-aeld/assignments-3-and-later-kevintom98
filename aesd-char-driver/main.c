@@ -21,6 +21,8 @@
 #include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/gfp.h>
+#include "aesd_ioctl.h"
+
 
 
 int aesd_major =   0; // use dynamic major
@@ -74,6 +76,8 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         return retval;
     }
     
+    PDEBUG("Offset set : %lld", filp->f_pos);
+
     aesd_entry_ret = aesd_circular_buffer_find_entry_offset_for_fpos(&driver_data->circular_buffer, *f_pos, &entry_offset_byte_rtn);
     if(aesd_entry_ret == NULL)
     {
@@ -263,16 +267,140 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 }
 
 
+loff_t  aesd_llseek(struct file *filp, loff_t offset, int whence)
+{
+    loff_t retval;
+    struct aesd_dev *driver_data;
+    
+    //Checking validity
+    if(!filp->private_data)
+    {
+        retval = -EINVAL;
+        return retval;
+    }
+
+    driver_data = filp->private_data;
 
 
+    //Aquiring mutex
+    retval = mutex_lock_interruptible(&driver_data->aesd_char_mut);
+    if(retval != 0)
+    {
+        PDEBUG("Could not aquire mutex");
+        return retval;
+    }
 
+    retval = fixed_size_llseek(filp,offset,whence, driver_data->circular_buffer.cir_buf_size);
+    if(retval == -EINVAL)
+    {
+        PDEBUG("Cannot seek the file, check your arguments");
+    }
+
+    //unlocking the mutex
+    mutex_unlock( &driver_data->aesd_char_mut );
+
+    return retval;
+}
+
+
+long aesd_adjust_file_offset(struct file *filp,unsigned int write_cmd, unsigned int write_cmd_offset)
+{
+    loff_t fpos=0;
+    long retval;
+    struct aesd_dev *driver_data = filp->private_data;
+    int i=0;
+
+    //Aquiring mutex
+    retval = mutex_lock_interruptible(&driver_data->aesd_char_mut);
+    if(retval != 0)
+    {
+        retval = -ERESTARTSYS;
+        PDEBUG("Could not aquire mutex");
+        return retval;
+    }
+
+    if(write_cmd > (AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED-1))
+    {
+        retval = -EINVAL;
+        goto out;
+    }
+
+    if(write_cmd_offset >= driver_data->circular_buffer.entry[write_cmd].size)
+    {
+        retval = -EINVAL;
+        goto out;       
+    }
+        
+    //going thorugh each command
+    for(i=0;i<write_cmd;i++)
+        fpos +=  driver_data->circular_buffer.entry[i].size;
+    
+    //updating fileposition
+    fpos += write_cmd_offset;
+
+    //setting the file position
+    filp->f_pos = fpos;
+
+    PDEBUG("Offset set to : %lld", filp->f_pos);
+    //unlocking the mutex
+    out:
+    mutex_unlock( &driver_data->aesd_char_mut );
+    return retval;
+}
+
+
+long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    long retval;
+    struct aesd_seekto seekto;
+    struct aesd_dev *driver_data;
+
+    //Checking validity
+    if(!filp->private_data)
+    {
+        retval = -EINVAL;
+        return retval;
+    }
+
+    driver_data = filp->private_data;
+
+
+    //Checking if the command is valid
+    if (_IOC_NR(cmd) > AESDCHAR_IOC_MAXNR) 
+        return -ENOTTY;
+    if (_IOC_TYPE(cmd) != AESD_IOC_MAGIC) 
+        return -ENOTTY;
+
+
+    switch(cmd)
+    {
+        case AESDCHAR_IOCSEEKTO:
+        {
+            if(copy_from_user(&seekto,  (void __user *)arg, sizeof(seekto)) != 0)
+                retval = EFAULT;
+            else
+                retval = aesd_adjust_file_offset(filp,seekto.write_cmd, seekto.write_cmd_offset);
+            break;
+        }
+        default:
+        {
+            return -ENOTTY;
+            break;
+        }
+    }
+
+    return retval;
+
+}
 
 struct file_operations aesd_fops = {
-    .owner =    THIS_MODULE,
-    .read =     aesd_read,
-    .write =    aesd_write,
-    .open =     aesd_open,
-    .release =  aesd_release,
+    .owner =            THIS_MODULE,
+    .read =             aesd_read,
+    .write =            aesd_write,
+    .open =             aesd_open,
+    .release =          aesd_release,
+    .llseek =           aesd_llseek,
+    .unlocked_ioctl =   aesd_ioctl,
 };
 
 static int aesd_setup_cdev(struct aesd_dev *dev)

@@ -68,6 +68,8 @@ char * aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const
     {
         ret_val = (char *)buffer->entry[buffer->out_offs].buffptr;
 
+        buffer->cir_buf_size -= buffer->entry[buffer->out_offs].size;
+
         //Incrementing the output pointer as well if the buffer is full
         buffer->out_offs++;
         
@@ -78,6 +80,8 @@ char * aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const
 
     buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
     buffer->entry[buffer->in_offs].size    = add_entry->size;
+
+    buffer->cir_buf_size += add_entry->size;
 
     //Incrementing input pointer
     buffer->in_offs++;

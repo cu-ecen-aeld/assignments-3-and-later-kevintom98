@@ -36,6 +36,7 @@
 #include <time.h>
 #include <string.h>
 //#include <sys/queue.h>
+#include "aesd_ioctl.h"
 
 
 #define DATASIZE 1024
@@ -82,6 +83,9 @@ struct thread_data
 struct itimerspec ts;
 
 
+
+
+const char *ioctl_command =  "AESDCHAR_IOCSEEKTO:";
 
 
 /* Adopted from * Beej's Guide to Network Programming
@@ -151,10 +155,10 @@ void send_packets(int f_fd, int soc_fd)
     return;
   }
   #else
-  // close(f_fd);
-  // f_fd = open("/dev/aesdchar",O_RDWR | O_CREAT | O_APPEND, 755);
-  // if(f_fd<0)
-  //   perror("fopen");
+  //close(f_fd);
+  //f_fd = open("/dev/aesdchar",O_RDWR | O_CREAT | O_APPEND, 755);
+  //if(f_fd<0)
+    //perror("fopen");
   #endif
 
   //Reading from file
@@ -267,10 +271,23 @@ void *packet_handler(void *conn_param)
         #if !USE_AESD_CHAR_DEVICE
         pthread_mutex_lock(&lock);
         #endif
-        write_to_file(f_fd, read_buf, len);   
-        printf("\n%s %ld\n",read_buf,conn_data->thread_id);
-        send_packets(f_fd, conn_data->accepted_fd);
 
+        if(strncmp(read_buf, ioctl_command, strlen(ioctl_command)) == 0)
+        {
+          printf("\nInside IOCTL\n");
+          struct aesd_seekto seekto;
+          sscanf(read_buf, "AESDCHAR_IOCSEEKTO:%d,%d", &seekto.write_cmd, &seekto.write_cmd_offset);
+          printf("\n\nFile -1 : %d\n",f_fd);
+          if(ioctl(f_fd, AESDCHAR_IOCSEEKTO, &seekto)) 
+            syslog(LOG_ERR, "\nIOCTL Error %d", errno);
+        }
+        else
+        {
+          write_to_file(f_fd, read_buf, len);   
+          printf("\n%s %ld\n",read_buf,conn_data->thread_id);
+        }
+        printf("\n\nFile -2 : %d\n",f_fd);
+        send_packets(f_fd, conn_data->accepted_fd);
         #if !USE_AESD_CHAR_DEVICE
         pthread_mutex_unlock(&lock);
         #endif
